@@ -116,3 +116,54 @@ secrets:
 		return strings.TrimSpace(baz.Build.DockerfileInline) == "FROM random"
 	}())
 }
+
+func TestParseBuildSSH(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("test is not compatible with windows")
+	}
+
+	const dockerComposeYAML = `
+services:
+  sshtest:
+    image: sshtestimg
+    build:
+      context: ./sshctx
+      ssh:
+        - default
+  sshwithpath:
+    image: sshwithpathimg
+    build:
+      context: ./sshpathctx
+      ssh:
+        - mykey=/path/to/key
+`
+	comp := testutil.NewComposeDir(t, dockerComposeYAML)
+	defer comp.CleanUp()
+
+	project, err := testutil.LoadProject(comp.YAMLFullPath(), comp.ProjectName(), nil)
+	assert.NilError(t, err)
+
+	// Test SSH with default
+	sshTestSvc, err := project.GetService("sshtest")
+	assert.NilError(t, err)
+
+	sshTest, err := Parse(project, sshTestSvc)
+	assert.NilError(t, err)
+
+	t.Logf("sshtest: %+v", sshTest)
+	t.Logf("sshtest.Build.BuildArgs: %+v", sshTest.Build.BuildArgs)
+	assert.Assert(t, in(sshTest.Build.BuildArgs, "--ssh=default"))
+
+	// Test SSH with custom path
+	sshWithPathSvc, err := project.GetService("sshwithpath")
+	assert.NilError(t, err)
+
+	sshWithPath, err := Parse(project, sshWithPathSvc)
+	assert.NilError(t, err)
+
+	t.Logf("sshwithpath: %+v", sshWithPath)
+	t.Logf("sshwithpath.Build.BuildArgs: %+v", sshWithPath.Build.BuildArgs)
+	assert.Assert(t, in(sshWithPath.Build.BuildArgs, "--ssh=mykey=/path/to/key"))
+}
