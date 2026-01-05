@@ -17,24 +17,24 @@
 
 # Basic deps
 # @BINARY: the binary checksums are verified via Dockerfile.d/SHA256SUMS.d/<COMPONENT>-<VERSION>
-ARG CONTAINERD_VERSION=v2.1.4@75cb2b7193e4e490e9fbdc236c0e811ccaba3376
-ARG RUNC_VERSION=v1.3.1@e6457afc48eff1ce22dece664932395026a7105e
-ARG CNI_PLUGINS_VERSION=v1.8.0@BINARY
+ARG CONTAINERD_VERSION=v2.2.1@dea7da592f5d1d2b7755e3a161be07f43fad8f75
+ARG RUNC_VERSION=v1.4.0@8bd78a9977e604c4d5f67a7415d7b8b8c109cdc4
+ARG CNI_PLUGINS_VERSION=v1.9.0@BINARY
 
 # Extra deps: Build
-ARG BUILDKIT_VERSION=v0.24.0@BINARY
+ARG BUILDKIT_VERSION=v0.26.3@BINARY
 # Extra deps: Lazy-pulling
-ARG STARGZ_SNAPSHOTTER_VERSION=v0.17.0@BINARY
+ARG STARGZ_SNAPSHOTTER_VERSION=v0.18.1@BINARY
 # Extra deps: Encryption
-ARG IMGCRYPT_VERSION=v2.0.1@c377ec98ff79ec9205eabf555ebd2ea784738c6c
+ARG IMGCRYPT_VERSION=v2.0.2@6892f4df2405cd15acbefd1dca970f53ba38bfda
 # Extra deps: Rootless
-ARG ROOTLESSKIT_VERSION=v2.3.5@BINARY
+ARG ROOTLESSKIT_VERSION=v2.3.6@BINARY
 ARG SLIRP4NETNS_VERSION=v1.3.3@BINARY
 # Extra deps: bypass4netns
 ARG BYPASS4NETNS_VERSION=v0.4.2@aa04bd3dcc48c6dae6d7327ba219bda8fe2a4634
 # Extra deps: FUSE-OverlayFS
-ARG FUSE_OVERLAYFS_VERSION=v1.15@BINARY
-ARG CONTAINERD_FUSE_OVERLAYFS_VERSION=v2.1.6@BINARY
+ARG FUSE_OVERLAYFS_VERSION=v1.16@BINARY
+ARG CONTAINERD_FUSE_OVERLAYFS_VERSION=v2.1.7@BINARY
 # Extra deps: Init
 ARG TINI_VERSION=v0.19.0@BINARY
 # Extra deps: Debug
@@ -47,12 +47,12 @@ ARG GOMODJAIL_VERSION=v0.1.3@cea529ddd971b677c67d8af7e936fbc62b35b98c
 ARG GO_VERSION=1.25
 ARG UBUNTU_VERSION=24.04
 ARG CONTAINERIZED_SYSTEMD_VERSION=v0.1.1
-ARG GOTESTSUM_VERSION=v1.12.3
-ARG NYDUS_VERSION=v2.3.5
-ARG SOCI_SNAPSHOTTER_VERSION=0.11.1
-ARG KUBO_VERSION=v0.37.0
+ARG GOTESTSUM_VERSION=v1.13.0
+ARG NYDUS_VERSION=v2.3.9
+ARG SOCI_SNAPSHOTTER_VERSION=0.12.1
+ARG KUBO_VERSION=v0.39.0
 
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.7.0@sha256:010d4b66aed389848b0694f91c7aaee9df59a6f20be7f5d12e53663a37bd14e2 AS xx
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707 AS xx
 
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-trixie AS build-base
@@ -167,7 +167,7 @@ RUN BUILDKIT_VERSION=${BUILDKIT_VERSION%%@*}; \
   grep "${fname}" "/SHA256SUMS.d/buildkit-${BUILDKIT_VERSION}" | sha256sum -c && \
   tar xzf "${fname}" -C /out && \
   rm -f "${fname}" /out/bin/buildkit-qemu-* /out/bin/buildkit-cni-* /out/bin/buildkit-runc && \
-  for f in /out/libexec/cni/*; do ln -s ../libexec/cni/$(basename $f) /out/bin/buildkit-cni-$(basename $f); done && \
+  for f in /out/libexec/cni/*; do [ -x "$f" ] && [ -f "$f" ] && ln -s ../libexec/cni/$(basename $f) /out/bin/buildkit-cni-$(basename $f); done && \
   echo "- BuildKit: ${BUILDKIT_VERSION}" >> /out/share/doc/nerdctl-full/README.md
 # NOTE: github.com/moby/buildkit/examples/systemd is not included in BuildKit v0.8.x, will be included in v0.9.x
 RUN cd /out/lib/systemd/system && \
@@ -309,10 +309,17 @@ ARG DEBIAN_FRONTEND=noninteractive
 # `expect` package contains `unbuffer(1)`, which is used for emulating TTY for testing
 # `jq` is required to generate test summaries
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends \
-  expect \
-  jq \
-  git \
-  make
+    software-properties-common \
+    gnupg \
+    gpg-agent \
+    ca-certificates && \
+    add-apt-repository ppa:criu/ppa && \
+    apt-get update -qq && apt-get install -qq --no-install-recommends \
+    expect \
+    jq \
+    git \
+    make \
+    criu
 # We wouldn't need this if Docker Hub could have "golang:${GO_VERSION}-ubuntu"
 COPY --from=build-base /usr/local/go /usr/local/go
 ARG TARGETARCH

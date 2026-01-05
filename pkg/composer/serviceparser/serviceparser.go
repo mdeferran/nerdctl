@@ -30,7 +30,6 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/types"
 
-	"github.com/containerd/containerd/v2/contrib/nvidia"
 	"github.com/containerd/log"
 
 	"github.com/containerd/nerdctl/v2/pkg/identifiers"
@@ -262,9 +261,17 @@ func getMemLimit(svc types.ServiceConfig) (types.UnitBytes, error) {
 func getGPUs(svc types.ServiceConfig) (reqs []string, _ error) {
 	// "gpu" and "nvidia" are also allowed capabilities (but not used as nvidia driver capabilities)
 	// https://github.com/moby/moby/blob/v20.10.7/daemon/nvidia_linux.go#L37
-	capset := map[string]struct{}{"gpu": {}, "nvidia": {}}
-	for _, c := range nvidia.AllCaps() {
-		capset[string(c)] = struct{}{}
+	capset := map[string]struct{}{
+		"gpu": {}, "nvidia": {},
+		// Allow the list of capabilities here (excluding "all" and "none")
+		// https://github.com/NVIDIA/nvidia-container-toolkit/blob/ff7c2d4866a7d46d1bf2a83590b263e10ec99cb5/internal/config/image/capabilities.go#L28-L38
+		"compat32": {},
+		"compute":  {},
+		"display":  {},
+		"graphics": {},
+		"ngx":      {},
+		"utility":  {},
+		"video":    {},
 	}
 	if svc.Deploy != nil && svc.Deploy.Resources.Reservations != nil {
 		for _, dev := range svc.Deploy.Resources.Reservations.Devices {
@@ -699,7 +706,14 @@ func newContainer(project *types.Project, parsed *Service, i int) (*Container, e
 		if err != nil {
 			return nil, err
 		}
-		c.RunArgs = append(c.RunArgs, "-v="+vStr)
+
+		switch v.Type {
+		case "tmpfs":
+			c.RunArgs = append(c.RunArgs, "--tmpfs="+vStr)
+		default:
+			c.RunArgs = append(c.RunArgs, "-v="+vStr)
+		}
+
 		c.Mkdir = mkdir
 	}
 
@@ -778,6 +792,7 @@ func serviceVolumeConfigToFlagV(c types.ServiceVolumeConfig, project *types.Proj
 		"ReadOnly",
 		"Bind",
 		"Volume",
+		"Tmpfs",
 	); len(unknown) > 0 {
 		log.L.Warnf("Ignoring: volume: %+v", unknown)
 	}
@@ -798,6 +813,29 @@ func serviceVolumeConfigToFlagV(c types.ServiceVolumeConfig, project *types.Proj
 	}
 	if !filepath.IsAbs(c.Target) {
 		return "", nil, fmt.Errorf("volume target must be an absolute path, got %q", c.Target)
+	}
+
+	if c.Type == "tmpfs" {
+		var opts []string
+
+		if c.ReadOnly {
+			opts = append(opts, "ro")
+		}
+		if c.Tmpfs != nil {
+			if c.Tmpfs.Size != 0 {
+				opts = append(opts, fmt.Sprintf("size=%d", c.Tmpfs.Size))
+			}
+			if c.Tmpfs.Mode != 0 {
+				opts = append(opts, fmt.Sprintf("mode=%o", c.Tmpfs.Mode))
+			}
+		}
+
+		s := c.Target
+		if len(opts) > 0 {
+			s = fmt.Sprintf("%s:%s", s, strings.Join(opts, ","))
+		}
+
+		return s, mkdir, nil
 	}
 
 	if c.Source == "" {

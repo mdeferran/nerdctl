@@ -36,7 +36,7 @@ import (
 )
 
 // CreateTimer sets up the transient systemd timer and service for healthchecks.
-func CreateTimer(ctx context.Context, container containerd.Container, cfg *config.Config) error {
+func CreateTimer(ctx context.Context, container containerd.Container, cfg *config.Config, nerdctlCmd string, nerdctlArgs []string) error {
 	hc := extractHealthcheck(ctx, container)
 	if hc == nil {
 		return nil
@@ -48,18 +48,26 @@ func CreateTimer(ctx context.Context, container containerd.Container, cfg *confi
 	containerID := container.ID()
 	log.G(ctx).Debugf("Creating healthcheck timer unit: %s", containerID)
 
+	// Set all environment variables so that they are available for the nerdctl commands run via the systemd service file
 	cmdOpts := []string{}
 	if path := os.Getenv("PATH"); path != "" {
 		cmdOpts = append(cmdOpts, "--setenv=PATH="+path)
 	}
 
+	if nerdctlToml := os.Getenv("NERDCTL_TOML"); nerdctlToml != "" {
+		cmdOpts = append(cmdOpts, "--setenv=NERDCTL_TOML="+nerdctlToml)
+	}
+
+	if buildKitHost := os.Getenv("BUILDKIT_HOST"); buildKitHost != "" {
+		cmdOpts = append(cmdOpts, "--setenv=BUILDKIT_HOST="+buildKitHost)
+	}
+
 	// Always use health-interval for timer frequency
 	cmdOpts = append(cmdOpts, "--unit", containerID, "--on-unit-inactive="+hc.Interval.String(), "--timer-property=AccuracySec=1s")
 
-	cmdOpts = append(cmdOpts, "nerdctl", "container", "healthcheck", containerID)
-	if log.G(ctx).Logger.IsLevelEnabled(log.DebugLevel) {
-		cmdOpts = append(cmdOpts, "--debug")
-	}
+	cmdOpts = append(cmdOpts, nerdctlCmd)
+	cmdOpts = append(cmdOpts, nerdctlArgs...)
+	cmdOpts = append(cmdOpts, "container", "healthcheck", containerID)
 
 	log.G(ctx).Debugf("creating healthcheck timer with: systemd-run %s", strings.Join(cmdOpts, " "))
 	run := exec.Command("systemd-run", cmdOpts...)
@@ -257,8 +265,8 @@ func shouldSkipHealthCheckSystemd(hc *Healthcheck, cfg *config.Config) bool {
 		return true
 	}
 
-	// Don't proceed if health check is nil, empty, explicitly NONE or interval is 0.
-	if hc == nil || len(hc.Test) == 0 || hc.Test[0] == "NONE" || hc.Interval == 0 {
+	// Don't proceed if health check is nil, empty or explicitly NONE.
+	if hc == nil || len(hc.Test) == 0 || hc.Test[0] == "NONE" {
 		return true
 	}
 	return false

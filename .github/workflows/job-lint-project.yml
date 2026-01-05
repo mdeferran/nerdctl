@@ -30,13 +30,13 @@ jobs:
 
     steps:
       - name: "Init: checkout"
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
         with:
           fetch-depth: 100
           path: src/github.com/containerd/nerdctl
 
       - name: "Init: install go"
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00  # v6.0.0
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c  # v6.1.0
         with:
           go-version: ${{ inputs.go-version }}
           check-latest: true
@@ -49,8 +49,11 @@ jobs:
           repo-access-token: ${{ secrets.GITHUB_TOKEN }}
           # go-licenses-ignore is set because go-licenses cannot detect the license of the following package:
           # * go-base36: Apache-2.0 OR MIT (https://github.com/multiformats/go-base36/blob/master/LICENSE.md)
+          # * filepath-securejoin: MPL-2.0 AND BSD-3-Clause, exceptionally approved by CNCF
+          #   (https://github.com/cncf/foundation/issues/1154#issuecomment-3562385979)
           #
           # The list of the CNCF-approved licenses can be found here:
           # https://github.com/cncf/foundation/blob/main/allowed-third-party-license-policy.md
           go-licenses-ignore: |
             github.com/multiformats/go-base36
+            github.com/cyphar/filepath-securejoin

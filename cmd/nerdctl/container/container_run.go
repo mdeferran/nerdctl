@@ -431,8 +431,18 @@ func runAction(cmd *cobra.Command, args []string) error {
 	}
 	logURI := lab[labels.LogURI]
 	detachC := make(chan struct{})
-	task, err := taskutil.NewTask(ctx, client, c, createOpt.Attach, createOpt.Interactive, createOpt.TTY, createOpt.Detach,
-		con, logURI, createOpt.DetachKeys, createOpt.GOptions.Namespace, detachC)
+	task, err := taskutil.NewTask(ctx, client, c, taskutil.TaskOptions{
+		AttachStreamOpt: createOpt.Attach,
+		IsInteractive:   createOpt.Interactive,
+		IsTerminal:      createOpt.TTY,
+		IsDetach:        createOpt.Detach,
+		Con:             con,
+		LogURI:          logURI,
+		DetachKeys:      createOpt.DetachKeys,
+		Namespace:       createOpt.GOptions.Namespace,
+		DetachC:         detachC,
+		CheckpointDir:   "",
+	})
 	if err != nil {
 		return err
 	}
@@ -447,7 +457,7 @@ func runAction(cmd *cobra.Command, args []string) error {
 	}
 
 	// Setup container healthchecks.
-	if err := healthcheck.CreateTimer(ctx, c, (*config.Config)(&createOpt.GOptions)); err != nil {
+	if err := healthcheck.CreateTimer(ctx, c, (*config.Config)(&createOpt.GOptions), createOpt.NerdctlCmd, createOpt.NerdctlArgs); err != nil {
 		return fmt.Errorf("failed to create healthcheck timer: %w", err)
 	}
 	if err := healthcheck.StartTimer(ctx, c, (*config.Config)(&createOpt.GOptions)); err != nil {

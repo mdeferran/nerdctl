@@ -32,6 +32,14 @@ type ContainerStartOptions struct {
 	DetachKeys string
 	// Attach stdin
 	Interactive bool
+	// Checkpoint is the name of the checkpoint to restore
+	Checkpoint string
+	// CheckpointDir is the directory to store checkpoints
+	CheckpointDir string
+	// NerdctlCmd is the command name of nerdctl
+	NerdctlCmd string
+	// NerdctlArgs is the arguments of nerdctl
+	NerdctlArgs []string
 }
 
 // ContainerKillOptions specifies options for `nerdctl (container) kill`.
@@ -325,6 +333,10 @@ type ContainerRestartOptions struct {
 	Timeout *time.Duration
 	// Signal to send to stop the container, before sending SIGKILL
 	Signal string
+	// NerdctlCmd is the command name of nerdctl
+	NerdctlCmd string
+	// NerdctlArgs is the arguments of nerdctl
+	NerdctlArgs []string
 }
 
 // ContainerPauseOptions specifies options for `nerdctl (container) pause`.
@@ -342,7 +354,14 @@ type ContainerPruneOptions struct {
 }
 
 // ContainerUnpauseOptions specifies options for `nerdctl (container) unpause`.
-type ContainerUnpauseOptions ContainerPauseOptions
+type ContainerUnpauseOptions struct {
+	Stdout   io.Writer
+	GOptions GlobalCommandOptions
+	// NerdctlCmd is the command name of nerdctl
+	NerdctlCmd string
+	// NerdctlArgs is the arguments of nerdctl
+	NerdctlArgs []string
+}
 
 // ContainerRemoveOptions specifies options for `nerdctl (container) rm`.
 type ContainerRemoveOptions struct {

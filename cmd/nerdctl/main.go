@@ -31,6 +31,7 @@ import (
 	"github.com/containerd/log"
 
 	"github.com/containerd/nerdctl/v2/cmd/nerdctl/builder"
+	"github.com/containerd/nerdctl/v2/cmd/nerdctl/checkpoint"
 	"github.com/containerd/nerdctl/v2/cmd/nerdctl/completion"
 	"github.com/containerd/nerdctl/v2/cmd/nerdctl/compose"
 	"github.com/containerd/nerdctl/v2/cmd/nerdctl/container"
@@ -110,7 +111,7 @@ func usage(c *cobra.Command) error {
 		t += "\n"
 		return t
 	}
-	s += printCommands("helpers.Management commands", managementCommands)
+	s += printCommands("Management commands", managementCommands)
 	s += printCommands("Commands", nonManagementCommands)
 
 	s += Bold("Flags") + ":\n"
@@ -350,6 +351,9 @@ Config file ($NERDCTL_TOML): %s
 
 		// Manifest
 		manifest.Command(),
+
+		// Checkpoint
+		checkpoint.Command(),
 	)
 	addApparmorCommand(rootCmd)
 	container.AddCpCommand(rootCmd)

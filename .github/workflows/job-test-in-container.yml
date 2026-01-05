@@ -35,6 +35,10 @@ on:
         required: false
         default: false
         type: boolean
+      skip-flaky:
+        required: false
+        default: false
+        type: boolean
 
 env:
   GOTOOLCHAIN: local
@@ -63,7 +67,7 @@ jobs:
 
     steps:
       - name: "Init: checkout"
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
         with:
           fetch-depth: 1
 
@@ -149,7 +153,17 @@ jobs:
           sudo sysctl -w net.ipv4.ip_forward=1
           # Enable IPv6 for Docker, and configure docker to use containerd for gha
           sudo mkdir -p /etc/docker
-          echo '{"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64", "experimental": true, "ip6tables": true}' | sudo tee /etc/docker/daemon.json
+          echo '{"ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64", "ip6tables": true}' | sudo tee /etc/docker/daemon.json
+      - name: "Init: enable Docker experimental features"
+        run: |
+          sudo mkdir -p /etc/docker
+          if [ -f /etc/docker/daemon.json ]; then
+            tmpfile="$(sudo mktemp)"
+            sudo jq '.experimental = true' /etc/docker/daemon.json | sudo tee "$tmpfile" >/dev/null
+            sudo mv "$tmpfile" /etc/docker/daemon.json
+          else
+            echo '{"experimental": true}' | sudo tee /etc/docker/daemon.json >/dev/null
+          fi
           sudo systemctl restart docker
       - name: "Run: integration tests"
         run: |
@@ -171,6 +185,7 @@ jobs:
           fi
       # FIXME: this NEEDS to go away
       - name: "Run: integration tests (flaky)"
+        if: ${{ !fromJSON(inputs.skip-flaky) }}
         run: |
           . ./hack/github/action-helpers.sh
           github::md::h2 "flaky" >> "$GITHUB_STEP_SUMMARY"

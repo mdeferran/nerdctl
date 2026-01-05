@@ -16,6 +16,10 @@ on:
       guest:
         required: true
         type: string
+      skip-flaky:
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   test:
@@ -26,16 +30,16 @@ jobs:
       TARGET: ${{ inputs.target }}
     steps:
       - name: "Init: checkout"
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
         with:
           fetch-depth: 1
 
       - name: "Init: lima"
-        uses: lima-vm/lima-actions/setup@03b96d61959e83b2c737e44162c3088e81de0886  # v1.0.1
+        uses: lima-vm/lima-actions/setup@55627e31b78637bf254a8b2a14da8ea7d12564e5  # v1.1.0
         id: lima-actions-setup
 
       - name: "Init: Cache"
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb  # v5.0.1
         with:
           path: ~/.cache/lima
           key: lima-${{ steps.lima-actions-setup.outputs.version }}
@@ -114,6 +118,7 @@ jobs:
             docker run -t -v /dev:/dev --rm --privileged test-integration ./hack/test-integration.sh -test.only-flaky=false
           fi
       - name: "Run: integration tests (flaky)"
+        if: ${{ !fromJSON(inputs.skip-flaky) }}
         run: |
           set -eux
           if [ "$TARGET" = "rootless" ]; then

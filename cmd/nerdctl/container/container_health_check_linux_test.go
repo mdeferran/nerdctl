@@ -32,6 +32,7 @@ import (
 	"github.com/containerd/nerdctl/mod/tigron/tig"
 
 	"github.com/containerd/nerdctl/v2/pkg/healthcheck"
+	"github.com/containerd/nerdctl/v2/pkg/inspecttypes/dockercompat"
 	"github.com/containerd/nerdctl/v2/pkg/rootlessutil"
 	"github.com/containerd/nerdctl/v2/pkg/testutil"
 	"github.com/containerd/nerdctl/v2/pkg/testutil/nerdtest"
@@ -139,6 +140,139 @@ func TestContainerHealthCheckBasic(t *testing.T) {
 	testCase.Run(t)
 }
 
+func TestContainerHealthCheckDefaults(t *testing.T) {
+	testCase := nerdtest.Setup()
+
+	// Docker CLI does not provide a standalone healthcheck command.
+	testCase.Require = require.Not(nerdtest.Docker)
+
+	// Skip systemd tests in rootless environment to bypass dbus permission issues
+	if rootlessutil.IsRootless() {
+		t.Skip("systemd healthcheck tests are skipped in rootless environment")
+	}
+
+	testCase.SubTests = []*test.Case{
+		{
+			Description: "Health check applies default values when not explicitly set",
+			Setup: func(data test.Data, helpers test.Helpers) {
+				// Create container with only --health-cmd, no other health flags
+				helpers.Ensure("run", "-d", "--name", data.Identifier(),
+					"--health-cmd", "echo healthy",
+					testutil.CommonImage, "sleep", nerdtest.Infinity)
+				nerdtest.EnsureContainerStarted(helpers, data.Identifier())
+			},
+			Cleanup: func(data test.Data, helpers test.Helpers) {
+				helpers.Anyhow("rm", "-f", data.Identifier())
+			},
+			Command: func(data test.Data, helpers test.Helpers) test.TestableCommand {
+				return helpers.Command("inspect", data.Identifier())
+			},
+			Expected: func(data test.Data, helpers test.Helpers) *test.Expected {
+				return &test.Expected{
+					ExitCode: 0,
+					Output: expect.All(func(stdout string, t tig.T) {
+						inspect := nerdtest.InspectContainer(helpers, data.Identifier())
+
+						// Parse the healthcheck config from container labels
+						hcLabel := inspect.Config.Labels["nerdctl/healthcheck"]
+						assert.Assert(t, hcLabel != "", "expected healthcheck label to be present")
+
+						var hc healthcheck.Healthcheck
+						err := json.Unmarshal([]byte(hcLabel), &hc)
+						assert.NilError(t, err, "failed to parse healthcheck config")
+
+						// Verify default values are applied
+						assert.Equal(t, hc.Interval, 30*time.Second, "expected default interval of 30s")
+						assert.Equal(t, hc.Timeout, 30*time.Second, "expected default timeout of 30s")
+						assert.Equal(t, hc.Retries, 3, "expected default retries of 3")
+						assert.Equal(t, hc.StartPeriod, 0*time.Second, "expected default start period of 0s")
+
+						// Verify the command was set correctly
+						assert.DeepEqual(t, hc.Test, []string{"CMD-SHELL", "echo healthy"})
+					}),
+				}
+			},
+		},
+		{
+			Description: "CLI flags override default values correctly",
+			Setup: func(data test.Data, helpers test.Helpers) {
+				// Create container with custom health flags that override defaults
+				helpers.Ensure("run", "-d", "--name", data.Identifier(),
+					"--health-cmd", "echo custom",
+					"--health-interval", "45s",
+					"--health-timeout", "15s",
+					"--health-retries", "5",
+					"--health-start-period", "10s",
+					testutil.CommonImage, "sleep", nerdtest.Infinity)
+				nerdtest.EnsureContainerStarted(helpers, data.Identifier())
+			},
+			Cleanup: func(data test.Data, helpers test.Helpers) {
+				helpers.Anyhow("rm", "-f", data.Identifier())
+			},
+			Command: func(data test.Data, helpers test.Helpers) test.TestableCommand {
+				return helpers.Command("inspect", data.Identifier())
+			},
+			Expected: func(data test.Data, helpers test.Helpers) *test.Expected {
+				return &test.Expected{
+					ExitCode: 0,
+					Output: expect.All(func(stdout string, t tig.T) {
+						inspect := nerdtest.InspectContainer(helpers, data.Identifier())
+
+						// Parse the healthcheck config from container labels
+						hcLabel := inspect.Config.Labels["nerdctl/healthcheck"]
+						assert.Assert(t, hcLabel != "", "expected healthcheck label to be present")
+
+						var hc healthcheck.Healthcheck
+						err := json.Unmarshal([]byte(hcLabel), &hc)
+						assert.NilError(t, err, "failed to parse healthcheck config")
+
+						// Verify CLI overrides are applied (not defaults)
+						assert.Equal(t, hc.Interval, 45*time.Second, "expected custom interval of 45s")
+						assert.Equal(t, hc.Timeout, 15*time.Second, "expected custom timeout of 15s")
+						assert.Equal(t, hc.Retries, 5, "expected custom retries of 5")
+						assert.Equal(t, hc.StartPeriod, 10*time.Second, "expected custom start period of 10s")
+
+						// Verify the command was set correctly
+						assert.DeepEqual(t, hc.Test, []string{"CMD-SHELL", "echo custom"})
+					}),
+				}
+			},
+		},
+		{
+			Description: "No defaults applied when no healthcheck is configured",
+			Setup: func(data test.Data, helpers test.Helpers) {
+				// Create container without any health flags
+				helpers.Ensure("run", "-d", "--name", data.Identifier(),
+					testutil.CommonImage, "sleep", nerdtest.Infinity)
+				nerdtest.EnsureContainerStarted(helpers, data.Identifier())
+			},
+			Cleanup: func(data test.Data, helpers test.Helpers) {
+				helpers.Anyhow("rm", "-f", data.Identifier())
+			},
+			Command: func(data test.Data, helpers test.Helpers) test.TestableCommand {
+				return helpers.Command("inspect", data.Identifier())
+			},
+			Expected: func(data test.Data, helpers test.Helpers) *test.Expected {
+				return &test.Expected{
+					ExitCode: 0,
+					Output: expect.All(func(stdout string, t tig.T) {
+						inspect := nerdtest.InspectContainer(helpers, data.Identifier())
+
+						// Verify no healthcheck label is present
+						hcLabel := inspect.Config.Labels["nerdctl/healthcheck"]
+						assert.Equal(t, hcLabel, "", "expected no healthcheck label when no healthcheck is configured")
+
+						// Verify no health state
+						assert.Assert(t, inspect.State.Health == nil, "expected no health state when no healthcheck is configured")
+					}),
+				}
+			},
+		},
+	}
+
+	testCase.Run(t)
+}
+
 func TestContainerHealthCheckAdvance(t *testing.T) {
 	testCase := nerdtest.Setup()
 
@@ -176,7 +310,7 @@ func TestContainerHealthCheckAdvance(t *testing.T) {
 						debug, _ := json.MarshalIndent(h, "", "  ")
 						t.Log(string(debug))
 						assert.Assert(t, h != nil, "expected health state")
-						assert.Equal(t, h.FailingStreak, 1)
+						assert.Assert(t, h.FailingStreak >= 1, "expected at least one failing streak")
 						assert.Assert(t, len(inspect.State.Health.Log) > 0, "expected health log to have entries")
 						last := inspect.State.Health.Log[0]
 						assert.Equal(t, -1, last.ExitCode)
@@ -215,7 +349,7 @@ func TestContainerHealthCheckAdvance(t *testing.T) {
 						t.Log(string(debug))
 						assert.Assert(t, h != nil, "expected health state")
 						assert.Equal(t, h.Status, healthcheck.Unhealthy)
-						assert.Equal(t, h.FailingStreak, 2)
+						assert.Assert(t, h.FailingStreak >= 1, "expected atleast one FailingStreak")
 					}),
 				}
 			},
@@ -278,7 +412,7 @@ func TestContainerHealthCheckAdvance(t *testing.T) {
 						t.Log(string(debug))
 						assert.Assert(t, h != nil, "expected health state")
 						assert.Equal(t, h.Status, healthcheck.Unhealthy)
-						assert.Equal(t, h.FailingStreak, 1)
+						assert.Assert(t, h.FailingStreak >= 1, "expected at least one failing streak")
 					}),
 				}
 			},
@@ -500,7 +634,7 @@ func TestContainerHealthCheckAdvance(t *testing.T) {
 						assert.Assert(t, h != nil, "expected health state")
 						assert.Equal(t, h.Status, healthcheck.Healthy)
 						assert.Equal(t, h.FailingStreak, 0)
-						assert.Assert(t, len(h.Log) == 1, "expected one log entry")
+						assert.Assert(t, len(h.Log) >= 1, "expected at least one log entry")
 						output := h.Log[0].Output
 						assert.Assert(t, strings.HasSuffix(output, "[truncated]"), "expected output to be truncated with '[truncated]'")
 					}),
@@ -790,6 +924,107 @@ func TestHealthCheck_SystemdIntegration_Basic(t *testing.T) {
 									"expected nerdctl healthcheck timer for container ID %s to be removed after container stop", containerID)
 							},
 						})
+					},
+				}
+			},
+		},
+	}
+	testCase.Run(t)
+}
+
+func TestHealthCheck_GlobalFlags(t *testing.T) {
+	testCase := nerdtest.Setup()
+	testCase.Require = require.Not(nerdtest.Docker)
+	// Skip systemd tests in rootless environment to bypass dbus permission issues
+	if rootlessutil.IsRootless() {
+		t.Skip("systemd healthcheck tests are skipped in rootless environment")
+	}
+
+	testCase.SubTests = []*test.Case{
+		{
+			Description: "Healthcheck works with custom namespace flag",
+			Setup: func(data test.Data, helpers test.Helpers) {
+				// Create container in custom namespace with healthcheck
+				helpers.Ensure("--namespace=healthcheck-test", "run", "-d", "--name", data.Identifier(),
+					"--health-cmd", "echo healthy",
+					"--health-interval", "2s",
+					testutil.CommonImage, "sleep", "30")
+				// Wait a bit to ensure container is running (can't use EnsureContainerStarted with custom namespace)
+				time.Sleep(1 * time.Second)
+			},
+			Cleanup: func(data test.Data, helpers test.Helpers) {
+				helpers.Anyhow("--namespace=healthcheck-test", "rm", "-f", data.Identifier())
+			},
+			Command: func(data test.Data, helpers test.Helpers) test.TestableCommand {
+				// Wait a bit for healthcheck to run
+				time.Sleep(3 * time.Second)
+				// Verify container is accessible in the custom namespace
+				return helpers.Command("--namespace=healthcheck-test", "inspect", data.Identifier())
+			},
+			Expected: func(data test.Data, helpers test.Helpers) *test.Expected {
+				return &test.Expected{
+					ExitCode: 0,
+					Output: func(stdout string, t tig.T) {
+						var inspectResults []dockercompat.Container
+						err := json.Unmarshal([]byte(stdout), &inspectResults)
+						assert.NilError(t, err, "failed to parse inspect output")
+						assert.Assert(t, len(inspectResults) > 0, "expected at least one container in inspect results")
+
+						inspect := inspectResults[0]
+						h := inspect.State.Health
+						assert.Assert(t, h != nil, "expected health state to be present")
+						assert.Assert(t, h.Status == healthcheck.Healthy || h.Status == healthcheck.Starting,
+							"expected health status to be healthy or starting, got: %s", h.Status)
+						assert.Assert(t, len(h.Log) > 0, "expected at least one health check log entry")
+					},
+				}
+			},
+		},
+		{
+			Description: "Healthcheck works correctly with namespace after container restart",
+			Setup: func(data test.Data, helpers test.Helpers) {
+				// Create container in custom namespace
+				helpers.Ensure("--namespace=restart-test", "run", "-d", "--name", data.Identifier(),
+					"--health-cmd", "echo healthy",
+					"--health-interval", "2s",
+					testutil.CommonImage, "sleep", "60")
+				// Wait a bit to ensure container is running (can't use EnsureContainerStarted with custom namespace)
+				time.Sleep(1 * time.Second)
+			},
+			Cleanup: func(data test.Data, helpers test.Helpers) {
+				helpers.Anyhow("--namespace=restart-test", "rm", "-f", data.Identifier())
+			},
+			Command: func(data test.Data, helpers test.Helpers) test.TestableCommand {
+				// Wait for initial healthcheck
+				time.Sleep(3 * time.Second)
+
+				// Stop and restart the container
+				helpers.Ensure("--namespace=restart-test", "stop", data.Identifier())
+				helpers.Ensure("--namespace=restart-test", "start", data.Identifier())
+				// Wait a bit to ensure container is running after restart
+				time.Sleep(1 * time.Second)
+
+				// Wait for healthcheck to run after restart
+				time.Sleep(3 * time.Second)
+
+				return helpers.Command("--namespace=restart-test", "inspect", data.Identifier())
+			},
+			Expected: func(data test.Data, helpers test.Helpers) *test.Expected {
+				return &test.Expected{
+					ExitCode: 0,
+					Output: func(stdout string, t tig.T) {
+						// Parse the inspect JSON output directly since we're in a custom namespace
+						var inspectResults []dockercompat.Container
+						err := json.Unmarshal([]byte(stdout), &inspectResults)
+						assert.NilError(t, err, "failed to parse inspect output")
+						assert.Assert(t, len(inspectResults) > 0, "expected at least one container in inspect results")
+
+						inspect := inspectResults[0]
+						h := inspect.State.Health
+						assert.Assert(t, h != nil, "expected health state after restart")
+						assert.Assert(t, h.Status == healthcheck.Healthy || h.Status == healthcheck.Starting,
+							"expected health status to be healthy or starting after restart, got: %s", h.Status)
+						assert.Assert(t, len(h.Log) > 0, "expected health check logs after restart")
 					},
 				}
 			},

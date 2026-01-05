@@ -71,7 +71,7 @@ jobs:
 
     steps:
       - name: "Init: checkout"
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
         with:
           fetch-depth: 1
 
@@ -96,7 +96,7 @@ jobs:
 
       - if: ${{ env.SHOULD_RUN == 'yes' }}
         name: "Init: install go"
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00  # v6.0.0
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c  # v6.1.0
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
@@ -107,9 +107,9 @@ jobs:
         name: "Init (linux): prepare host"
         run: |
           if [ "${{ contains(inputs.binary, 'docker') }}" == true ]; then
-            echo "::group:: configure cdi for docker"
+            echo "::group:: configure cdi and experimental for docker"
             sudo mkdir -p /etc/docker
-            sudo jq '.features.cdi = true' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp && sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+            sudo jq -n '.features.cdi = true | .experimental = true' | sudo tee /etc/docker/daemon.json
             echo "::endgroup::"
             echo "::group:: downgrade docker to the specific version we want to test (${{ inputs.docker-version }})"
             sudo apt-get update -qq
@@ -122,6 +122,7 @@ jobs:
               | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
             sudo apt-get update -qq
             sudo apt-get install -qq --allow-downgrades docker-ce=${{ inputs.docker-version }} docker-ce-cli=${{ inputs.docker-version }}
+            sudo systemctl restart docker
             echo "::endgroup::"
           else
             # FIXME: this is missing runc (see top level workflow note about the state of this)
@@ -153,7 +154,8 @@ jobs:
 
           # FIXME: remove expect when we are done removing unbuffer from tests
           echo "::group:: installing test dependencies"
-          sudo apt-get install -qq expect
+          sudo add-apt-repository ppa:criu/ppa -y
+          sudo apt-get install -qq expect criu
           echo "::endgroup::"
 
           # This ensures that bridged traffic goes through netfilter
